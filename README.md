@@ -20,7 +20,17 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
-First, run the development server:
+1. First, run these commands to create and apply the database schema:
+
+```bash
+# Generate Prisma Client
+npx prisma generate
+
+# Push the schema to the database
+npx prisma db push
+```
+
+2. Then, run the development server:
 
 ```bash
 npm run dev

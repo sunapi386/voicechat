@@ -49,3 +49,4 @@ tools/text-output/
 .dccache
 
 scripts/comment-file-path.sh
+prisma/dev.db
