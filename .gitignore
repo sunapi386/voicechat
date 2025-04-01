@@ -47,3 +47,5 @@ tools/text-output/
 
 # Snyk
 .dccache
+
+scripts/comment-file-path.sh

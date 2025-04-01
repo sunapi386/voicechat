@@ -1,271 +1,544 @@
-"use client"
+// src/app/conversation/page.tsx
+"use client";
 
-import { useState, useEffect, useRef } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Mic, Volume2, RefreshCw, AlertCircle, Check, X } from "lucide-react"
-import { useMobile } from "@/hooks/use-mobile"
-import { cn } from "@/lib/utils"
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Mic,
+  Volume2,
+  RefreshCw,
+  AlertCircle,
+  Check,
+  X,
+  Info,
+  Loader2,
+  Square,
+  Phone,
+} from "lucide-react";
+import { useMobile } from "@/hooks/use-mobile"; // Assuming this hook exists and works
+import { cn } from "@/lib/utils";
+import { WebRTCConnector } from "@/components/chat/WebRTCConnector"; // Import the connector
+import { AI_ROLE_SHORT, AI_SYSTEM_PROMPT } from "@/lib/ai-prompt"; // Import prompts
+import { API_ROUTES } from "@/lib/apiRoutes";
+import { toast } from "sonner";
 
 // Types for our conversation
-type MessageRole = "clinician" | "patient"
-type MessageType = "original" | "translation"
+type MessageRole = "clinician" | "patient" | "assistant" | "tool"; // Added assistant/tool
+type MessageType = "original" | "translation" | "info"; // Added info
 
 interface Message {
-  id: string
-  role: MessageRole
-  text: string
-  translation: string
-  timestamp: Date
-  type: MessageType
+  id: string;
+  role: MessageRole;
+  text: string; // Original text if user/clinician, AI response/translation if assistant
+  translation?: string; // Optional: Store explicit translation if needed separately
+  timestamp: Date;
+  type: MessageType;
 }
 
 interface Action {
-  id: string
-  type: string
-  description: string
-  confirmed: boolean | null
+  id: string;
+  type: "lab_order" | "follow_up" | string; // Allow string for future types
+  description: string;
+  confirmed: boolean | null; // null = pending, true = confirmed, false = cancelled
+  payload?: any; // Optional payload for execution
 }
 
+// --- Main Component ---
 export default function ConversationPage() {
-  const searchParams = useSearchParams()
-  const router = useRouter()
-  const isMobile = useMobile()
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const isMobile = useMobile();
 
-  // Get the role from URL params (clinician or patient)
-  const role = (searchParams.get("role") as MessageRole) || "clinician"
-  const isClinicianView = role === "clinician"
+  // Role determination
+  const role = (searchParams.get("role") as MessageRole) || "clinician";
+  const isClinicianView = role === "clinician";
 
-  // State for conversation
-  const [messages, setMessages] = useState<Message[]>([])
-  const [isRecording, setIsRecording] = useState(false)
-  const [isTranslating, setIsTranslating] = useState(false)
-  const [actions, setActions] = useState<Action[]>([])
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  // State
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isRecording, setIsRecording] = useState(false); // User is actively holding mic
+  const [rtcConnectionState, setRtcConnectionState] = useState<
+    RTCPeerConnectionState | "error" | "connecting" | "idle"
+  >("idle");
+  const [actions, setActions] = useState<Action[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const webRTCConnectorRef = useRef<{
+    sendCommand: (type: string, payload?: any) => void;
+  }>(null); // Ref for commands
 
-  // Mock data for initial messages
+  // Scroll to bottom
   useEffect(() => {
-    const initialMessages: Message[] = [
-      {
-        id: "1",
-        role: "clinician",
-        text: "Hello, how are you feeling today?",
-        translation: "¿Hola, cómo se siente hoy?",
-        timestamp: new Date(Date.now() - 120000),
-        type: "original",
-      },
-      {
-        id: "2",
-        role: "patient",
-        text: "Me duele mucho la cabeza desde ayer.",
-        translation: "I have had a bad headache since yesterday.",
-        timestamp: new Date(Date.now() - 90000),
-        type: "original",
-      },
-      {
-        id: "3",
-        role: "clinician",
-        text: "I'm sorry to hear that. Have you taken any medication for it?",
-        translation: "Lamento escuchar eso. ¿Ha tomado algún medicamento para ello?",
-        timestamp: new Date(Date.now() - 60000),
-        type: "original",
-      },
-      {
-        id: "4",
-        role: "patient",
-        text: "Tomé ibuprofeno pero no me ayudó mucho.",
-        translation: "I took ibuprofen but it didn't help much.",
-        timestamp: new Date(Date.now() - 30000),
-        type: "original",
-      },
-    ]
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
-    setMessages(initialMessages)
-  }, [])
-
-  // Scroll to bottom when messages change
+  // Add initial system message
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+    addMessage(
+      `System initialized. Role: ${
+        isClinicianView ? "Clinician (EN)" : "Patient (ES)"
+      }. Waiting to connect...`,
+      "info",
+      "assistant" // Or a dedicated 'system' role
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isClinicianView]); // Run only once on view change
 
-  // Simulate recording and translation
+  // --- Message Handling ---
+  const addMessage = useCallback(
+    (
+      text: string,
+      type: MessageType,
+      msgRole: MessageRole,
+      translation?: string
+    ) => {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          role: msgRole,
+          text: text,
+          translation: translation,
+          timestamp: new Date(),
+          type: type,
+        },
+      ]);
+      // Play TTS for AI messages if needed (WebRTC handles AI voice, this is for other roles if necessary)
+      // if (msgRole === 'assistant' && type !== 'info') {
+      //   playTextToSpeech(text);
+      // }
+    },
+    []
+  );
+
+  // --- WebRTC Callbacks ---
+  const handleMessageReceived = useCallback(
+    (text: string, msgRole: "assistant" | "tool") => {
+      // TODO: Logic to determine if this is an original or translation
+      // For now, assume it's the primary text from the assistant/tool
+      addMessage(text, "original", msgRole);
+
+      // --- Action Detection (Example) ---
+      // This should ideally happen based on structured data from the AI via data channel,
+      // but we can do basic keyword spotting on text as a fallback/PoC.
+      const lowerText = text.toLowerCase();
+      if (
+        lowerText.includes("order") &&
+        (lowerText.includes("lab") || lowerText.includes("blood test"))
+      ) {
+        const actionId = `action-${Date.now()}`;
+        setActions((prev) => [
+          ...prev,
+          {
+            id: actionId,
+            type: "lab_order",
+            description: `Detected: "${text.substring(
+              0,
+              50
+            )}..." - Confirm Lab Order?`,
+            confirmed: null, // Pending confirmation
+            payload: { details: text }, // Store relevant details
+          },
+        ]);
+      } else if (
+        lowerText.includes("schedule") &&
+        lowerText.includes("follow-up")
+      ) {
+        const actionId = `action-${Date.now()}`;
+        setActions((prev) => [
+          ...prev,
+          {
+            id: actionId,
+            type: "follow_up",
+            description: `Detected: "${text.substring(
+              0,
+              50
+            )}..." - Confirm Follow-up?`,
+            confirmed: null,
+            payload: { details: text },
+          },
+        ]);
+      }
+      // Add more detection rules
+    },
+    [addMessage]
+  );
+
+  const handleConnectionStateChange = useCallback(
+    (state: RTCPeerConnectionState | "error" | "connecting" | "idle") => {
+      setRtcConnectionState(state);
+      let infoMsg = "";
+      if (state === "connected") {
+        infoMsg = "Connection established. Start speaking.";
+      } else if (state === "connecting") {
+        infoMsg = "Attempting to connect...";
+      } else if (state === "disconnected") {
+        infoMsg = "Connection lost. Attempting to reconnect...";
+      } else if (state === "failed") {
+        infoMsg = "Connection failed. Please try reconnecting.";
+      } else if (state === "closed") {
+        infoMsg = "Connection closed.";
+      } else if (state === "idle") {
+        infoMsg = "Ready to connect.";
+      }
+
+      if (infoMsg) {
+        addMessage(infoMsg, "info", "assistant"); // Use 'assistant' or 'system' role for info
+      }
+    },
+    [addMessage]
+  );
+
+  const handleStopRecordingFromConnector = useCallback(() => {
+    setIsRecording(false); // Sync state if connector stops it (e.g., AI starts talking)
+  }, []);
+
+  // --- User Input (Mic Button) ---
   const handleMicPress = () => {
-    setIsRecording(true)
-  }
+    if (rtcConnectionState === "connected") {
+      setIsRecording(true);
+      // Audio sending is toggled by the useEffect watching isRecording + peerConnection
+    } else {
+      toast({
+        title: "Not Connected",
+        description: "Please start the voice session first.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleMicRelease = () => {
-    setIsRecording(false)
-    setIsTranslating(true)
-
-    // Simulate translation delay
-    setTimeout(() => {
-      const newMessage: Message = {
-        id: Date.now().toString(),
-        role: role,
-        text: isClinicianView
-          ? "I would like to order some blood tests to check for any issues."
-          : "Todavía tengo náuseas y mareos cuando me levanto.",
-        translation: isClinicianView
-          ? "Me gustaría ordenar algunos análisis de sangre para verificar si hay algún problema."
-          : "I still have nausea and dizziness when I get up.",
-        timestamp: new Date(),
-        type: "original",
-      }
-
-      setMessages((prev) => [...prev, newMessage])
-      setIsTranslating(false)
-
-      // Detect action if clinician mentions tests
-      if (isClinicianView && newMessage.text.toLowerCase().includes("tests")) {
-        setTimeout(() => {
-          setActions((prev) => [
-            ...prev,
-            {
-              id: Date.now().toString(),
-              type: "lab_order",
-              description: "Blood test order detected",
-              confirmed: null,
-            },
-          ])
-        }, 1000)
-      }
-    }, 2000)
-  }
-
-  const handleRepeat = () => {
-    // Find the last message from the other role
-    const lastMessage = [...messages].reverse().find((m) => m.role !== role)
-
-    if (lastMessage) {
-      // Play the audio (simulated)
-      alert(`Playing: ${isClinicianView ? lastMessage.text : lastMessage.translation}`)
+    if (isRecording) {
+      setIsRecording(false);
+      // Audio sending is toggled by the useEffect
+      // Optional: Send an 'end of speech' marker if API requires it
+      // webRTCConnectorRef.current?.sendCommand('end_of_speech');
     }
-  }
+  };
 
-  const handleActionConfirm = (actionId: string, confirmed: boolean) => {
-    setActions((prev) => prev.map((action) => (action.id === actionId ? { ...action, confirmed } : action)))
-  }
+  // --- Controls ---
+  const handleRepeat = () => {
+    // Find the last message *spoken by the other party* (needs reliable role tracking)
+    // For simplicity, let's find the last message *from the assistant*
+    const lastAssistantMessage = [...messages]
+      .reverse()
+      .find((m) => m.role === "assistant" && m.type !== "info");
+
+    if (lastAssistantMessage) {
+      playTextToSpeech(lastAssistantMessage.text); // Use browser TTS for repeat
+    } else {
+      toast({
+        title: "Nothing to repeat",
+        description: "No previous message from the interpreter found.",
+      });
+    }
+  };
+
+  // Simulate TTS using browser API
+  const playTextToSpeech = (text: string) => {
+    if ("speechSynthesis" in window) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      // Optional: Set language based on whose text it is
+      // utterance.lang = isClinicianView ? 'es-ES' : 'en-US'; // Example
+      speechSynthesis.cancel(); // Cancel previous speech
+      speechSynthesis.speak(utterance);
+    } else {
+      toast({
+        title: "TTS Not Supported",
+        description: "Your browser does not support text-to-speech.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleActionConfirm = async (actionId: string, confirmed: boolean) => {
+    const actionIndex = actions.findIndex((a) => a.id === actionId);
+    if (actionIndex === -1) return;
+
+    const actionToUpdate = actions[actionIndex];
+
+    // Update UI immediately to show pending->confirmed/cancelled
+    setActions((prev) =>
+      prev.map((action) =>
+        action.id === actionId ? { ...action, confirmed } : action
+      )
+    );
+
+    if (confirmed) {
+      addMessage(
+        `Action Confirmed: ${actionToUpdate.type}. Executing...`,
+        "info",
+        "assistant"
+      );
+      try {
+        const response = await fetch(API_ROUTES.EXECUTE_ACTION, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: actionToUpdate.type,
+            payload: actionToUpdate.payload, // Send relevant data
+            // Add patient/session context if needed
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.text();
+          throw new Error(
+            `Action execution failed: ${response.status} - ${errorData}`
+          );
+        }
+
+        const result = await response.json(); // Assuming backend confirms success
+        addMessage(
+          `Action Executed: ${actionToUpdate.type}. ${result.message || ""}`,
+          "info",
+          "tool"
+        );
+        toast({
+          title: "Action Sent",
+          description: `${actionToUpdate.type} sent to system.`,
+        });
+        // Update action status definitively after backend confirmation if needed
+        // setActions(prev => prev.map(a => a.id === actionId ? { ...a, status: 'completed' } : a)); // If backend returns status
+      } catch (error: any) {
+        console.error("Failed to execute action:", error);
+        addMessage(
+          `Action Failed: ${actionToUpdate.type}. Error: ${error.message}`,
+          "info",
+          "assistant"
+        );
+        toast({
+          title: "Action Failed",
+          description: error.message,
+          variant: "destructive",
+        });
+        // Optionally revert UI confirmation state on failure
+        // setActions(prev => prev.map(a => a.id === actionId ? { ...a, confirmed: null } : a));
+      }
+    } else {
+      // Action cancelled
+      addMessage(
+        `Action Cancelled: ${actionToUpdate.type}`,
+        "info",
+        "assistant"
+      );
+      toast({ title: "Action Cancelled" });
+      // Remove from pending actions list or mark as cancelled
+      setActions((prev) => prev.filter((action) => action.id !== actionId));
+    }
+  };
 
   const handleEndSession = () => {
-    router.push(`/summary?role=${role}`)
-  }
+    // 1. Stop WebRTC connection if active
+    // webRTCConnectorRef.current?.stopConversation(); // Need to expose stopConversation via ref or have the button inside the connector
+    setIsRecording(false); // Ensure mic state is off
+    if (
+      rtcConnectionState === "connected" ||
+      rtcConnectionState === "connecting"
+    ) {
+      // Need a way to trigger stopConversation inside WebRTCConnector
+      // For now, rely on user clicking the Stop button in the connector
+      console.warn(
+        "Please stop the voice session using the dedicated button before ending."
+      );
+      toast({
+        title: "Please stop the voice session first",
+        variant: "default",
+      });
+      return; // Prevent ending until connection stopped
+    }
 
+    // 2. TODO: Send final transcript + trigger summary generation (backend)
+    //    const transcript = messages;
+    //    fetch(API_ROUTES.SAVE_CONVERSATION, { method: 'POST', body: JSON.stringify({ transcript }) });
+
+    // 3. Navigate to summary page
+    router.push(`/summary?role=${role}`);
+  };
+
+  // --- Rendering ---
   return (
-    <div className={cn("min-h-screen flex flex-col", isClinicianView ? "bg-blue-50" : "bg-green-50")}>
+    <div
+      className={cn(
+        "min-h-screen flex flex-col",
+        isClinicianView ? "bg-blue-50" : "bg-green-50"
+      )}
+    >
       {/* Header */}
       <header
         className={cn(
-          "p-4 flex justify-between items-center",
-          isClinicianView ? "bg-blue-600 text-white" : "bg-green-600 text-white",
+          "p-4 flex justify-between items-center sticky top-0 z-10 shadow",
+          isClinicianView ? "bg-blue-600 text-white" : "bg-green-600 text-white"
         )}
       >
-        <h1 className="text-xl font-bold">
-          {isClinicianView ? "Medical Interpreter (Clinician)" : "Intérprete Médico (Paciente)"}
-        </h1>
+        <div>
+          <h1 className="text-xl font-bold">
+            {isClinicianView ? "Medical Interpreter" : "Intérprete Médico"}
+          </h1>
+          <div className="text-xs opacity-80 flex items-center gap-1">
+            <Info size={12} /> {AI_ROLE_SHORT}
+            <span
+              className={cn(
+                "ml-2 w-2 h-2 rounded-full inline-block",
+                rtcConnectionState === "connected"
+                  ? "bg-green-400 animate-pulse"
+                  : rtcConnectionState === "connecting"
+                  ? "bg-yellow-400 animate-pulse"
+                  : rtcConnectionState === "error" ||
+                    rtcConnectionState === "failed"
+                  ? "bg-red-500"
+                  : "bg-gray-400"
+              )}
+            ></span>
+            {rtcConnectionState}
+          </div>
+        </div>
+
         <Button
           variant="outline"
           className={cn(
             "border-white text-white hover:bg-white",
-            isClinicianView ? "hover:text-blue-600" : "hover:text-green-600",
+            isClinicianView ? "hover:text-blue-600" : "hover:text-green-600"
           )}
           onClick={handleEndSession}
+          // Disable if connection active? Maybe not, allow ending session regardless.
         >
           {isClinicianView ? "End Session" : "Finalizar Sesión"}
         </Button>
       </header>
 
-      {/* Main content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Split view for desktop */}
-        {!isMobile && (
-          <>
-            <div className="w-1/2 bg-blue-50 p-4 border-r border-slate-200">
-              <div className="text-center mb-4">
-                <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200">
-                  Clinician View (English)
-                </Badge>
-              </div>
-            </div>
-            <div className="w-1/2 bg-green-50 p-4">
-              <div className="text-center mb-4">
-                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
-                  Patient View (Spanish)
-                </Badge>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
+      {/* WebRTC Connection Controls */}
+      <WebRTCConnector
+        onMessageReceived={handleMessageReceived}
+        onConnectionStateChange={handleConnectionStateChange}
+        isRecording={isRecording} // Pass recording state down
+        onStopRecording={handleStopRecordingFromConnector} // Pass callback down
+        role={role}
+        // ref={webRTCConnectorRef} // Enable if you need to call sendCommand from parent
+      />
 
       {/* Conversation area */}
       <div className="flex-1 overflow-y-auto p-4">
-        <div className="max-w-4xl mx-auto">
-          {messages.map((message) => (
+        <div className="max-w-4xl mx-auto space-y-4">
+          {messages.map((message, index) => (
             <div
-              key={message.id}
-              className={cn("mb-4 flex", message.role === "clinician" ? "justify-start" : "justify-end")}
+              key={`msg-${message.id}-${index}`}
+              className={cn(
+                "flex",
+                message.role === "clinician"
+                  ? "justify-start"
+                  : message.role === "patient"
+                  ? "justify-end"
+                  : message.role === "assistant" || message.role === "tool"
+                  ? "justify-center"
+                  : "justify-start"
+              )}
             >
               <div
                 className={cn(
-                  "max-w-[80%] rounded-lg p-3",
-                  message.role === "clinician" ? "bg-blue-100 text-blue-900" : "bg-green-100 text-green-900",
+                  "max-w-[80%] rounded-lg p-3 shadow-sm",
+                  message.role === "clinician"
+                    ? "bg-blue-100 text-blue-900"
+                    : message.role === "patient"
+                    ? "bg-green-100 text-green-900"
+                    : message.role === "assistant"
+                    ? "bg-slate-100 text-slate-800 text-center"
+                    : message.role === "tool"
+                    ? "bg-purple-100 text-purple-900 text-center italic"
+                    : "bg-gray-100 text-gray-800" // Default/System/Info
                 )}
               >
-                <div className="font-medium mb-1">{message.role === "clinician" ? "Clinician" : "Patient"}</div>
-                <p>{isClinicianView || message.role === "clinician" ? message.text : message.text}</p>
-                <p className="mt-2 text-sm italic">
-                  {isClinicianView || message.role === "patient" ? message.translation : message.translation}
-                </p>
-                <div className="text-xs mt-1 text-slate-500">{message.timestamp.toLocaleTimeString()}</div>
+                {/* Optionally show role, especially for assistant/tool/info */}
+                {(message.role === "assistant" ||
+                  message.role === "tool" ||
+                  message.type === "info") && (
+                  <div className="font-medium mb-1 text-xs uppercase opacity-70">
+                    {message.role}
+                  </div>
+                )}
+                {message.role === "clinician" && (
+                  <div className="font-medium mb-1">Clinician</div>
+                )}
+                {message.role === "patient" && (
+                  <div className="font-medium mb-1">Patient</div>
+                )}
+
+                {/* Display logic: Show main text. Show translation based on view */}
+                <p>{message.text}</p>
+                {/* Show translation only if it exists and is relevant to the current view */}
+                {message.translation &&
+                  ((isClinicianView && message.role === "patient") || // Show EN translation of ES patient speech
+                    (!isClinicianView && message.role === "clinician") || // Show ES translation of EN clinician speech
+                    (message.role === "assistant" && message.translation)) && ( // Show translation if assistant provided both
+                    <p className="mt-2 text-sm opacity-70 italic">
+                      Translation: {message.translation}
+                    </p>
+                  )}
+
+                <div className="text-xs mt-1 text-slate-500 opacity-80">
+                  {message.timestamp.toLocaleTimeString()}
+                </div>
               </div>
             </div>
           ))}
-
-          {isTranslating && (
+          {/* Display Translating/Thinking indicator ? */}
+          {/* Need a state for this, e.g., isAiProcessing */}
+          {/* {isAiProcessing && (
             <div className="flex justify-center my-4">
-              <Badge variant="outline" className="animate-pulse">
-                Translating...
-              </Badge>
+                <Badge variant="outline" className="animate-pulse bg-slate-100">
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" /> Interpreter processing...
+                </Badge>
             </div>
-          )}
-
-          <div ref={messagesEndRef} />
+            )} */}
+          <div ref={messagesEndRef} /> {/* Scroll target */}
         </div>
       </div>
 
       {/* Action alerts */}
-      {actions.length > 0 && (
-        <div className="p-4 border-t border-slate-200">
-          <div className="max-w-4xl mx-auto">
+      {actions.filter((a) => a.confirmed === null).length > 0 && (
+        <div className="p-4 border-t border-slate-200 bg-white sticky bottom-[88px] md:bottom-[72px] z-10">
+          {" "}
+          {/* Adjust bottom based on control bar height */}
+          <div className="max-w-4xl mx-auto space-y-2">
+            <h3 className="text-sm font-medium text-amber-700 mb-1">
+              Pending Actions:
+            </h3>
             {actions
               .filter((a) => a.confirmed === null)
               .map((action) => (
-                <Card key={action.id} className="mb-2 bg-amber-50 border-amber-200">
-                  <div className="p-3 flex items-center justify-between">
-                    <div className="flex items-center">
-                      <AlertCircle className="text-amber-500 mr-2" size={20} />
-                      <span>
-                        <strong>{action.type === "lab_order" ? "Lab Order Detected" : action.type}</strong>:{" "}
+                <Card
+                  key={action.id}
+                  className="mb-2 bg-amber-50 border-amber-200 shadow-none"
+                >
+                  <div className="p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                    <div className="flex items-start text-sm">
+                      <AlertCircle
+                        className="text-amber-500 mr-2 mt-0.5 flex-shrink-0"
+                        size={16}
+                      />
+                      <span className="break-words">
+                        <strong>
+                          {action.type.replace("_", " ").toUpperCase()}?
+                        </strong>{" "}
                         {action.description}
                       </span>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 self-end sm:self-center flex-shrink-0">
                       <Button
                         size="sm"
                         variant="outline"
-                        className="border-red-200 hover:bg-red-100 hover:text-red-800"
+                        className="border-red-300 text-red-700 hover:bg-red-100 h-8 px-2"
                         onClick={() => handleActionConfirm(action.id, false)}
                       >
-                        <X size={16} className="mr-1" /> Cancel
+                        <X size={14} className="mr-1" /> No
                       </Button>
                       <Button
                         size="sm"
-                        className="bg-green-600 hover:bg-green-700"
+                        className="bg-green-600 hover:bg-green-700 h-8 px-2"
                         onClick={() => handleActionConfirm(action.id, true)}
                       >
-                        <Check size={16} className="mr-1" /> Confirm
+                        <Check size={14} className="mr-1" /> Yes
                       </Button>
                     </div>
                   </div>
@@ -275,39 +548,87 @@ export default function ConversationPage() {
         </div>
       )}
 
-      {/* Controls */}
-      <div className={cn("p-4 border-t border-slate-200", isClinicianView ? "bg-blue-100" : "bg-green-100")}>
+      {/* Controls Area */}
+      <div
+        className={cn(
+          "p-4 border-t border-slate-200 sticky bottom-0 z-10",
+          isClinicianView ? "bg-blue-100" : "bg-green-100"
+        )}
+      >
         <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <Button variant="outline" size="icon" className="rounded-full h-12 w-12" onClick={handleRepeat}>
-              <RefreshCw size={20} />
+          {/* Repeat Button */}
+          <div className="flex items-center gap-2 md:order-1">
+            <Button
+              variant="outline"
+              size="icon"
+              className="rounded-full h-10 w-10 bg-white disabled:opacity-50"
+              onClick={handleRepeat}
+              disabled={rtcConnectionState !== "connected"}
+            >
+              <RefreshCw size={18} />
             </Button>
-            <span className="text-sm">{isClinicianView ? "Repeat Last" : "Repetir Último"}</span>
+            <span className="text-sm hidden md:inline">
+              {isClinicianView ? "Repeat Last" : "Repetir Último"}
+            </span>
           </div>
 
-          <Button
+          {/* Mic Button */}
+          <button
+            type="button"
             className={cn(
-              "rounded-full h-16 w-16 flex items-center justify-center transition-all",
-              isRecording ? "scale-110 shadow-lg" : "",
-              isClinicianView ? "bg-blue-600 hover:bg-blue-700" : "bg-green-600 hover:bg-green-700",
+              "rounded-full h-16 w-16 flex items-center justify-center transition-all text-white disabled:opacity-50 disabled:cursor-not-allowed",
+              "focus:outline-none focus:ring-2 focus:ring-offset-2",
+              isRecording ? "scale-110 shadow-lg animate-pulse" : "shadow",
+              isClinicianView
+                ? "bg-blue-600 hover:bg-blue-700 focus:ring-blue-500"
+                : "bg-green-600 hover:bg-green-700 focus:ring-green-500",
+              rtcConnectionState !== "connected" &&
+                "bg-gray-400 hover:bg-gray-400" // Disabled look
             )}
-            onMouseDown={handleMicPress}
-            onMouseUp={handleMicRelease}
-            onTouchStart={handleMicPress}
-            onTouchEnd={handleMicRelease}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              handleMicPress();
+            }} // Use MouseDown/Up for hold behavior
+            onMouseUp={(e) => {
+              e.preventDefault();
+              handleMicRelease();
+            }}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              handleMicPress();
+            }} // Support touch
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              handleMicRelease();
+            }}
+            onMouseLeave={handleMicRelease} // Stop recording if mouse leaves button while held
+            disabled={rtcConnectionState !== "connected"}
+            aria-label={isRecording ? "Stop Recording" : "Start Recording"}
           >
-            <Mic size={24} className={isRecording ? "animate-pulse" : ""} />
-          </Button>
+            {isRecording ? (
+              <Square size={24} fill="white" /> // Show square when recording
+            ) : (
+              <Mic size={24} />
+            )}
+          </button>
 
-          <div className="flex items-center gap-4">
-            <Button variant="outline" size="icon" className="rounded-full h-12 w-12">
-              <Volume2 size={20} />
+          {/* Play Audio Button (If separate TTS control needed) */}
+          <div className="flex items-center gap-2 md:order-3">
+            <Button
+              variant="outline"
+              size="icon"
+              className="rounded-full h-10 w-10 bg-white disabled:opacity-50"
+              // onClick={handlePlayLastAudio} // Implement if needed
+              disabled // Disable for now, as AI audio plays automatically via WebRTC track
+            >
+              <Volume2 size={18} />
             </Button>
-            <span className="text-sm">{isClinicianView ? "Play Audio" : "Reproducir Audio"}</span>
+            <span className="text-sm hidden md:inline">
+              {isClinicianView ? "Play Audio" : "Reproducir"}
+            </span>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }
-
