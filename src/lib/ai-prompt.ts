@@ -65,3 +65,45 @@ Instrucciones principales:
 
 // You might want a shorter version for quick display if needed
 export const AI_ROLE_SHORT = "Real-time EN/ES Medical Interpreter";
+
+export const SUMMARY_PROMPT = `
+Analyze the following medical conversation transcript and provide a structured summary following these guidelines:
+
+1. Extract key medical information and organize it into these categories:
+   - Visit Summary (brief overview)
+   - Chief Complaint
+   - Key Findings
+   - Diagnosis/Assessment
+   - Treatment Plan
+   - Follow-up Instructions
+   - Medications
+
+2. Detect any actionable items, including but not limited to:
+   - Follow-up appointments
+   - Lab orders
+   - Medication prescriptions
+   - Referrals
+   - Imaging orders
+   - Vital signs to record
+
+Format the response in JSON matching this structure:
+{
+  "summary": {
+    "visitSummary": string,
+    "chiefComplaint": string,
+    "keyFindings": string[],
+    "diagnosis": string,
+    "treatmentPlan": string,
+    "followUp": string,
+    "medications": string[]
+  },
+  "actionables": [
+    {
+      "type": string,
+      "description": string,
+      "priority": "high" | "medium" | "low",
+      "timeframe": string
+    }
+  ]
+}
+`;

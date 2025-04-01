@@ -334,8 +334,11 @@ export default function ConversationPage() {
     }
 
     // 2. TODO: Send final transcript + trigger summary generation (backend)
-    //    const transcript = messages;
-    //    fetch(API_ROUTES.SAVE_CONVERSATION, { method: 'POST', body: JSON.stringify({ transcript }) });
+    const transcript = messages;
+    fetch(API_ROUTES.SAVE_CONVERSATION, {
+      method: "POST",
+      body: JSON.stringify({ transcript }),
+    });
 
     // 3. Navigate to summary page
     router.push(`/summary?role=${role}`);
@@ -391,16 +394,6 @@ export default function ConversationPage() {
           {isClinicianView ? "End Session" : "Finalizar Sesión"}
         </Button>
       </header>
-
-      {/* WebRTC Connection Controls */}
-      <WebRTCConnector
-        onMessageReceived={handleMessageReceived}
-        onConnectionStateChange={handleConnectionStateChange}
-        isRecording={isRecording} // Pass recording state down
-        onStopRecording={handleStopRecordingFromConnector} // Pass callback down
-        role={role}
-        // ref={webRTCConnectorRef} // Enable if you need to call sendCommand from parent
-      />
 
       {/* Conversation area */}
       <div className="flex-1 overflow-y-auto p-4">
@@ -478,6 +471,16 @@ export default function ConversationPage() {
           <div ref={messagesEndRef} /> {/* Scroll target */}
         </div>
       </div>
+
+      {/* WebRTC Connection Controls */}
+      <WebRTCConnector
+        onMessageReceived={handleMessageReceived}
+        onConnectionStateChange={handleConnectionStateChange}
+        isRecording={isRecording} // Pass recording state down
+        onStopRecording={handleStopRecordingFromConnector} // Pass callback down
+        role={role}
+        // ref={webRTCConnectorRef} // Enable if you need to call sendCommand from parent
+      />
 
       {/* Action alerts */}
       {actions.filter((a) => a.confirmed === null).length > 0 && (
