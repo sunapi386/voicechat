@@ -63,7 +63,6 @@ Instrucciones principales:
   return basePrompt[languageFacing];
 };
 
-// You might want a shorter version for quick display if needed
 export const AI_ROLE_SHORT = "Real-time EN/ES Medical Interpreter";
 
 export const SUMMARY_PROMPT = `
@@ -86,6 +85,10 @@ Analyze the following medical conversation transcript and provide a structured s
    - Imaging orders
    - Vital signs to record
 
+3. Specifically identify if any of these actions are required:
+   - Schedule follow-up appointment (include requested date/time if mentioned)
+   - Send lab order (include type of lab test if mentioned)
+
 Format the response in JSON matching this structure:
 {
   "summary": {
@@ -104,6 +107,18 @@ Format the response in JSON matching this structure:
       "priority": "high" | "medium" | "low",
       "timeframe": string
     }
-  ]
+  ],
+  "detectedIntents": {
+    "scheduleFollowup": {
+      "detected": boolean,
+      "date": "requested date if mentioned",
+      "notes": "any relevant notes"
+    },
+    "sendLabOrder": {
+      "detected": boolean,
+      "testType": "type of lab test if mentioned",
+      "notes": "any relevant notes"
+    }
+  }
 }
 `;

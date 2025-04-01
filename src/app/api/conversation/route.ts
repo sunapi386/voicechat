@@ -2,10 +2,63 @@
 import { SUMMARY_PROMPT } from "@/lib/ai-prompt";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { executeWebhook, SUPPORTED_ACTIONS } from "@/lib/webhooks";
+
+// Define types
+interface TranscriptMessage {
+  role: string;
+  text: string;
+}
+
+interface BaseIntent {
+  [key: string]: unknown;
+}
+
+interface FollowupIntent extends BaseIntent {
+  detected: boolean;
+  date?: string;
+  notes?: string;
+}
+
+interface LabOrderIntent extends BaseIntent {
+  detected: boolean;
+  testType?: string;
+  notes?: string;
+}
+
+interface DetectedIntents {
+  scheduleFollowup: FollowupIntent;
+  sendLabOrder: LabOrderIntent;
+}
+
+interface ActionToolData {
+  date?: string;
+  notes?: string;
+  testType?: string;
+  [key: string]: unknown;
+}
+
+interface ExecutedAction {
+  type: string;
+  success: boolean;
+  metadata: FollowupIntent | LabOrderIntent;
+}
+
+const actionTools = {
+  async scheduleFollowup(data: ActionToolData): Promise<boolean> {
+    return executeWebhook(SUPPORTED_ACTIONS.SCHEDULE_FOLLOWUP, data);
+  },
+
+  async sendLabOrder(data: ActionToolData): Promise<boolean> {
+    return executeWebhook(SUPPORTED_ACTIONS.SEND_LAB_ORDER, data);
+  },
+};
 
 export async function POST(request: Request) {
   try {
-    const { transcript } = await request.json();
+    const { transcript } = (await request.json()) as {
+      transcript: TranscriptMessage[];
+    };
 
     if (!transcript) {
       return NextResponse.json(
@@ -14,17 +67,9 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log("Received conversation to save:");
-    console.log("Transcript Length:", transcript?.length);
-
-    // Filter out system messages and transform to readable text
     const conversationText = transcript
-      .map(
-        (msg) =>
-          // Format each message as "Role: Message"
-          `${msg.role.toUpperCase()}: ${msg.text}`
-      )
-      .join("\n\n"); // Add spacing between messages
+      .map((msg: TranscriptMessage) => `${msg.role.toUpperCase()}: ${msg.text}`)
+      .join("\n\n");
 
     if (!conversationText.trim()) {
       return NextResponse.json(
@@ -33,9 +78,6 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log("Processed conversation text:", conversationText);
-
-    // Get summary and actionables using fetch
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -68,34 +110,59 @@ export async function POST(request: Request) {
     const aiResponse = JSON.parse(
       completionData.choices[0].message.content || "{}"
     );
+    const { summary, actionables, detectedIntents } = aiResponse as {
+      summary: string;
+      actionables: string[];
+      detectedIntents: DetectedIntents;
+    };
 
-    const { summary, actionables } = aiResponse;
+    const executedActions: ExecutedAction[] = [];
+    if (detectedIntents.scheduleFollowup.detected) {
+      const success = await actionTools.scheduleFollowup(
+        detectedIntents.scheduleFollowup
+      );
+      executedActions.push({
+        type: SUPPORTED_ACTIONS.SCHEDULE_FOLLOWUP,
+        success,
+        metadata: detectedIntents.scheduleFollowup,
+      });
+    }
 
-    console.log("Summary:", summary);
-    console.log("Detected Actions:", actionables);
+    if (detectedIntents.sendLabOrder.detected) {
+      const success = await actionTools.sendLabOrder(
+        detectedIntents.sendLabOrder
+      );
+      executedActions.push({
+        type: SUPPORTED_ACTIONS.SEND_LAB_ORDER,
+        success,
+        metadata: detectedIntents.sendLabOrder,
+      });
+    }
 
-    // Database saving
     const savedConversation = await prisma.conversation.create({
       data: {
         transcript: JSON.stringify(transcript),
         summary: JSON.stringify(summary),
         actionables: JSON.stringify(actionables),
-        // Add other fields as needed
+        detectedIntents: JSON.stringify(detectedIntents),
+        executedActions: JSON.stringify(executedActions),
       },
     });
 
-    console.log("Saved conversation with ID:", savedConversation.id);
-
     return NextResponse.json({
-      message: "Conversation saved successfully",
+      message: "Conversation processed successfully",
       id: savedConversation.id,
+      summary,
+      detectedIntents,
+      executedActions,
     });
-  } catch (error: any) {
-    console.error("Error saving conversation:", error);
-    return NextResponse.json(
-      { error: error.message || "Internal Server Error saving conversation" },
-      { status: 500 }
-    );
+  } catch (error) {
+    console.error("Error processing conversation:", error);
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Internal Server Error processing conversation";
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
 

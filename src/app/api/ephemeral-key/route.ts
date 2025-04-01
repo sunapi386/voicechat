@@ -39,6 +39,9 @@ export async function POST(request: NextRequest) {
           modalities: ["audio", "text"],
           instructions: getAISystemPrompt(english ? "english" : "spanish"),
           voice: "sage",
+          input_audio_transcription: {
+            model: "whisper-1",
+          },
         }),
       }
     );
