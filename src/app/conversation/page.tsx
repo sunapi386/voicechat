@@ -5,7 +5,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   Mic,
   Volume2,
@@ -14,14 +13,11 @@ import {
   Check,
   X,
   Info,
-  Loader2,
   Square,
-  Phone,
 } from "lucide-react";
-import { useMobile } from "@/hooks/use-mobile"; // Assuming this hook exists and works
 import { cn } from "@/lib/utils";
 import { WebRTCConnector } from "@/components/chat/WebRTCConnector"; // Import the connector
-import { AI_ROLE_SHORT, AI_SYSTEM_PROMPT } from "@/lib/ai-prompt"; // Import prompts
+import { AI_ROLE_SHORT } from "@/lib/ai-prompt"; // Import prompts
 import { API_ROUTES } from "@/lib/apiRoutes";
 import { toast } from "sonner";
 
@@ -50,7 +46,6 @@ interface Action {
 export default function ConversationPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const isMobile = useMobile();
 
   // Role determination
   const role = (searchParams.get("role") as MessageRole) || "clinician";
@@ -200,10 +195,8 @@ export default function ConversationPage() {
       setIsRecording(true);
       // Audio sending is toggled by the useEffect watching isRecording + peerConnection
     } else {
-      toast({
-        title: "Not Connected",
+      toast("Not Connected", {
         description: "Please start the voice session first.",
-        variant: "destructive",
       });
     }
   };
@@ -228,8 +221,7 @@ export default function ConversationPage() {
     if (lastAssistantMessage) {
       playTextToSpeech(lastAssistantMessage.text); // Use browser TTS for repeat
     } else {
-      toast({
-        title: "Nothing to repeat",
+      toast("Nothing to repeat", {
         description: "No previous message from the interpreter found.",
       });
     }
@@ -244,10 +236,8 @@ export default function ConversationPage() {
       speechSynthesis.cancel(); // Cancel previous speech
       speechSynthesis.speak(utterance);
     } else {
-      toast({
-        title: "TTS Not Supported",
+      toast("TTS Not Supported", {
         description: "Your browser does not support text-to-speech.",
-        variant: "destructive",
       });
     }
   };
@@ -295,8 +285,7 @@ export default function ConversationPage() {
           "info",
           "tool"
         );
-        toast({
-          title: "Action Sent",
+        toast("Action Sent", {
           description: `${actionToUpdate.type} sent to system.`,
         });
         // Update action status definitively after backend confirmation if needed
@@ -308,10 +297,8 @@ export default function ConversationPage() {
           "info",
           "assistant"
         );
-        toast({
-          title: "Action Failed",
+        toast("Action Failed", {
           description: error.message,
-          variant: "destructive",
         });
         // Optionally revert UI confirmation state on failure
         // setActions(prev => prev.map(a => a.id === actionId ? { ...a, confirmed: null } : a));
@@ -323,7 +310,7 @@ export default function ConversationPage() {
         "info",
         "assistant"
       );
-      toast({ title: "Action Cancelled" });
+      toast("Action Cancelled");
       // Remove from pending actions list or mark as cancelled
       setActions((prev) => prev.filter((action) => action.id !== actionId));
     }
@@ -342,10 +329,7 @@ export default function ConversationPage() {
       console.warn(
         "Please stop the voice session using the dedicated button before ending."
       );
-      toast({
-        title: "Please stop the voice session first",
-        variant: "default",
-      });
+      toast("Please stop the voice session first", {});
       return; // Prevent ending until connection stopped
     }
 
@@ -398,7 +382,7 @@ export default function ConversationPage() {
         <Button
           variant="outline"
           className={cn(
-            "border-white text-white hover:bg-white",
+            "border-white text-gray-300 hover:bg-white",
             isClinicianView ? "hover:text-blue-600" : "hover:text-green-600"
           )}
           onClick={handleEndSession}

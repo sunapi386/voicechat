@@ -150,30 +150,16 @@ export const setupWebRTCConnection = async ({
     };
     const offer = await pc.createOffer(offerOptions);
 
-    // --- Send System Prompt with Offer (if API supports it in SDP/headers) ---
-    // Option A: Embed in SDP (unlikely standard)
-    // offer.sdp = offer.sdp?.replace('a=sendrecv', `a=sendrecv\r\na=x-openai-prompt: ${btoa(AI_SYSTEM_PROMPT)}`); // Highly speculative
-
-    // Option B: Custom Header (More likely if supported) - Adjust fetch below
     const headers: HeadersInit = {
-      // Use the ephemeral key IF REQUIRED by this specific OpenAI endpoint
-      Authorization: `Bearer ${ephemeralKeyValue}`, // Or use process.env.OPENAI_API_KEY for standard endpoints
+      Authorization: `Bearer ${ephemeralKeyValue}`,
       "Content-Type": "application/sdp",
-      // "X-OpenAI-System-Prompt": btoa(AI_SYSTEM_PROMPT) // Custom header example - CHECK DOCS
     };
 
     await pc.setLocalDescription(offer);
     console.log("Local description set (Offer):", offer.sdp);
 
     // --- Connect to OpenAI Realtime API ---
-    // IMPORTANT: Verify the correct URL and parameters from OpenAI docs
-    const apiUrl =
-      "https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17&system_prompt=base64_encoded_prompt_here"; // Placeholder URL and prompt method - CHECK DOCS!
-    // Base64 encode the prompt if sending via URL param:
-    const encodedPrompt = btoa(encodeURIComponent(AI_SYSTEM_PROMPT));
-    const finalApiUrl = `https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17&system_prompt=${encodeURIComponent(
-      encodedPrompt
-    )}`; // CHECK METHOD!
+    const finalApiUrl = `https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17`;
 
     console.log("Sending offer to:", finalApiUrl);
     const apiResponse = await fetch(

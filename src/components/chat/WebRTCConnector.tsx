@@ -19,7 +19,7 @@ interface WebRTCConnectorProps {
   ) => void;
   isRecording: boolean; // Controlled by parent (mic button)
   onStopRecording: () => void; // Callback to signal parent recording stopped
-  role: "clinician" | "patient"; // To know which language context, if needed
+  role: "clinician" | "patient" | "assistant"; // To know which language context, if needed
   // Add other callbacks if needed, e.g., onSummary, onActionDetected
 }
 
@@ -140,8 +140,9 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
     try {
       // Fetch ephemeral key (if needed by your specific OpenAI endpoint)
       // For standard OpenAI API keys, you might handle auth differently (e.g., backend proxy)
-      const ephemeralKey =
-        await fetchEphemeralKey(/* pass auth token if required */);
+      const ephemeralKey = await fetchEphemeralKey(
+        role /* pass auth token if required */
+      );
       if (!ephemeralKey?.value) {
         throw new Error("Invalid or missing ephemeral key.");
       }

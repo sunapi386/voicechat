@@ -1,7 +1,17 @@
 // src/app/api/ephemeral-key/route.ts
+import { getAISystemPrompt } from "@/lib/ai-prompt";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
+  // Todo: authenticate the request
+  // Check the language
+  if (!request.headers.get("Language")) {
+    return NextResponse.json(
+      { error: "Missing language header: en-US es-ES" },
+      { status: 400 }
+    );
+  }
+
   // Get this from environment variables
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -14,6 +24,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const english = request.headers.get("Language") === "en-US";
     const response = await fetch(
       "https://api.openai.com/v1/realtime/sessions",
       {
@@ -25,6 +36,9 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           // Can make this configurable or use an environment variable
           model: "gpt-4o-mini-realtime-preview-2024-12-17",
+          modalities: ["audio", "text"],
+          instructions: getAISystemPrompt(english ? "english" : "spanish"),
+          voice: "sage",
         }),
       }
     );
@@ -39,6 +53,7 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
+    console.log("OpenAI API Response:", data);
     return NextResponse.json({ ephemeral_key: data.client_secret });
   } catch (error) {
     console.error("Error generating ephemeral key:", error);
