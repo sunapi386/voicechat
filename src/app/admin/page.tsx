@@ -70,6 +70,7 @@ export default function AdminPage() {
       const summary = JSON.parse(summaryJson);
       return `${summary.visitSummary} Diagnosis: ${summary.diagnosis}`;
     } catch (e) {
+      console.error("Error parsing summary JSON:", e);
       return summaryJson;
     }
   };
@@ -287,6 +288,10 @@ export default function AdminPage() {
                                     </div>
                                   );
                                 } catch (e) {
+                                  console.error(
+                                    "Error parsing summary JSON:",
+                                    e
+                                  );
                                   return <p>{selectedConversation.summary}</p>;
                                 }
                               })()}

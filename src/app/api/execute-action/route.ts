@@ -25,11 +25,11 @@ export async function POST(request: Request) {
     return NextResponse.json({
       message: `Action '${type}' successfully triggered.`,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error executing action:", error);
     return NextResponse.json(
       {
-        error: error.message || "Internal Server Error during action execution",
+        error: error || "Internal Server Error during action execution",
       },
       { status: 500 }
     );

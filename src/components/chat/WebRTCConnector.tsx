@@ -65,7 +65,7 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
         setError(null); // Clear error on successful connection
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [onConnectionStateChange]
   ); // Add stopConversation if needed
 
@@ -77,7 +77,7 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
         onStopRecording();
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [onMessageReceived]
   );
 
@@ -95,7 +95,7 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
         stopConversation(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [toast, onConnectionStateChange]
   ); // Add stopConversation if needed
 
@@ -169,7 +169,6 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
       // but we set state here just in case setup fails before callbacks are attached
       handleError(error instanceof Error ? error : new Error(String(error)));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     handleError,
     handleInternalConnectionState,
@@ -193,7 +192,6 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
     return () => {
       stopConversation(false); // Clean up on component unmount
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run only once on mount/unmount
 
   // Public method to send commands (like 'repeat')
@@ -238,12 +236,11 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
 
       {(connectionState === "disconnected" ||
         connectionState === "failed" ||
-        connectionState === "closed") &&
-        connectionState !== "idle" && (
-          <Button onClick={startConversation} className="w-full max-w-xs">
-            <Phone className="mr-2 h-4 w-4" /> Reconnect
-          </Button>
-        )}
+        connectionState === "closed") && (
+        <Button onClick={startConversation} className="w-full max-w-xs">
+          <Phone className="mr-2 h-4 w-4" /> Reconnect
+        </Button>
+      )}
 
       {error && (
         <div className="text-red-600 text-sm flex items-center gap-1 mt-1">

@@ -2,7 +2,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,7 +37,7 @@ interface SummaryData {
   duration?: string;
 }
 
-export default function SummaryPage() {
+function SummaryContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [summaryData, setSummaryData] = useState<SummaryData>({
@@ -300,5 +300,26 @@ export default function SummaryPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Create a loading component
+function SummaryLoading() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="flex items-center gap-2">
+        <Loader2 className="animate-spin" />
+        <span>Loading...</span>
+      </div>
+    </div>
+  );
+}
+
+// Main page component
+export default function SummaryPage() {
+  return (
+    <Suspense fallback={<SummaryLoading />}>
+      <SummaryContent />
+    </Suspense>
   );
 }

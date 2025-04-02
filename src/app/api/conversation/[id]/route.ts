@@ -1,14 +1,14 @@
 // src/app/api/conversation/[id]/route.ts
 import { prisma } from "@/lib/db";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
-  request: Request,
-  context: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Destructure and await the params
-    const { id } = await context.params;
+    const { id } = await params;
 
     const conversation = await prisma.conversation.findUnique({
       where: {

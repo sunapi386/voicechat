@@ -1,7 +1,7 @@
 // src/app/conversation/page.tsx
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import {
   X,
   Info,
   Square,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WebRTCConnector } from "@/components/chat/WebRTCConnector"; // Import the connector
@@ -39,7 +40,7 @@ interface Action {
 }
 
 // --- Main Component ---
-export default function ConversationPage() {
+function ConversationContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -79,20 +80,17 @@ export default function ConversationPage() {
   }, [messages]);
 
   // Add initial system message
-  useEffect(
-    () => {
-      addMessage(
-        getLocalizedText(
-          `System initialized. Role: Clinician (EN)`,
-          `Sistema inicializado. Rol: Paciente (ES)`,
-          `系统已初始化。角色：患者 (中文)`
-        ),
-        "info",
-        "assistant"
-      );
-    }, // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isClinicianView]
-  );
+  useEffect(() => {
+    addMessage(
+      getLocalizedText(
+        `System initialized. Role: Clinician (EN)`,
+        `Sistema inicializado. Rol: Paciente (ES)`,
+        `系统已初始化。角色：患者 (中文)`
+      ),
+      "info",
+      "assistant"
+    );
+  }, [isClinicianView]);
 
   // --- Message Handling ---
   const addMessage = useCallback(
@@ -198,6 +196,7 @@ export default function ConversationPage() {
         console.log(infoMsg);
       }
     },
+
     [addMessage]
   );
 
@@ -674,5 +673,26 @@ export default function ConversationPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Create a loading component
+function ConversationLoading() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="flex items-center gap-2">
+        <Loader2 className="animate-spin" />
+        <span>Loading...</span>
+      </div>
+    </div>
+  );
+}
+
+// Main page component
+export default function ConversationPage() {
+  return (
+    <Suspense fallback={<ConversationLoading />}>
+      <ConversationContent />
+    </Suspense>
   );
 }
