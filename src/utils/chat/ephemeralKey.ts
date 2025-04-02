@@ -1,14 +1,14 @@
 // src/utils/chat/ephemeralKey.ts
 import { API_ROUTES } from "@/lib/apiRoutes"; // We'll define this shortly
+import { Language } from "@/lib/types";
 
 // This function assumes a backend endpoint exists at API_ROUTES.GENERATE_EPHEMERAL_KEY
 // It might need adjustments based on your auth strategy (if any for PoC)
 export const fetchEphemeralKey = async (
-  role: string
+  language: Language
 ): // access_token: string | undefined, // Adapt if using auth
 Promise<{ value: string; expires_at: number }> => {
   try {
-    const language = role != "patient" ? "en-US" : "es-ES";
     const response = await fetch(API_ROUTES.GENERATE_EPHEMERAL_KEY, {
       method: "POST",
       // Add headers if needed, e.g., for authentication

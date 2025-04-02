@@ -184,9 +184,9 @@ export async function GET() {
         actions: JSON.parse(conv.actionables).length,
       }))
     );
-  } catch (error: any) {
+  } catch (error) {
     return NextResponse.json(
-      { error: error.message || "Error fetching conversations" },
+      { error: error || "Error fetching conversations" },
       { status: 500 }
     );
   }

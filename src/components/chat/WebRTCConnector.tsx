@@ -11,15 +11,19 @@ import {
 } from "@/utils/chat/webRTC";
 import { Loader2, Phone, PhoneOff, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { Language, MessageRole } from "@/lib/types";
 
 interface WebRTCConnectorProps {
-  onMessageReceived: (text: string, role: "assistant" | "tool") => void;
+  onMessageReceived: (text: string, role: MessageRole) => void;
   onConnectionStateChange: (
     state: RTCPeerConnectionState | "error" | "connecting" | "idle"
   ) => void;
   isRecording: boolean; // Controlled by parent (mic button)
   onStopRecording: () => void; // Callback to signal parent recording stopped
-  role: "clinician" | "patient" | "assistant"; // To know which language context, if needed
+  language: Language; // Language context for the conversation
+  ref?: React.Ref<{
+    sendCommand: (commandType: string, payload?: any) => void;
+  }>;
   // Add other callbacks if needed, e.g., onSummary, onActionDetected
 }
 
@@ -28,7 +32,8 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
   onConnectionStateChange,
   isRecording,
   onStopRecording,
-  role,
+  language,
+  ref,
 }) => {
   const [connectionState, setConnectionState] = useState<
     RTCPeerConnectionState | "error" | "connecting" | "idle"
@@ -59,20 +64,20 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
       } else if (state === "connected") {
         setError(null); // Clear error on successful connection
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [onConnectionStateChange]
   ); // Add stopConversation if needed
 
   const handleTextMessage = useCallback(
-    (text: string, role: "assistant" | "tool") => {
+    (text: string, role: "assistant" | "user") => {
       onMessageReceived(text, role);
       // Stop local recording visualisation if AI starts talking
       if (role === "assistant") {
         onStopRecording();
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [onMessageReceived]
   );
 
@@ -82,17 +87,15 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
       setError(`Error: ${err.message}`);
       setConnectionState("error");
       onConnectionStateChange("error");
-      toast({
-        variant: "destructive",
-        title: "Connection Error",
+      toast("WebRTC Error", {
         description: err.message || "An unknown WebRTC error occurred.",
       });
       // Ensure cleanup happens
       if (peerConnection) {
         stopConversation(false);
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [toast, onConnectionStateChange]
   ); // Add stopConversation if needed
 
@@ -121,7 +124,6 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
         onStopRecording(); // Ensure parent state reflects stop
       }
       // setError(null); // Keep error message if stopped due to error? Or clear? Decide UX.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
     [
       peerConnection,
@@ -140,9 +142,7 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
     try {
       // Fetch ephemeral key (if needed by your specific OpenAI endpoint)
       // For standard OpenAI API keys, you might handle auth differently (e.g., backend proxy)
-      const ephemeralKey = await fetchEphemeralKey(
-        role /* pass auth token if required */
-      );
+      const ephemeralKey = await fetchEphemeralKey(language);
       if (!ephemeralKey?.value) {
         throw new Error("Invalid or missing ephemeral key.");
       }
@@ -163,7 +163,7 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
       setAudioElement(audio);
       setDataChannel(dc); // Store the data channel reference
       // State should update via onConnectionStateChange callback
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to start conversation:", error);
       // handleError callback within setupWebRTCConnection should have already run
       // but we set state here just in case setup fails before callbacks are attached
@@ -252,7 +252,9 @@ export const WebRTCConnector: React.FC<WebRTCConnectorProps> = ({
         </div>
       )}
       {/* Debugging display - remove later */}
-      {/* <div className="text-xs text-gray-500 mt-1">State: {connectionState} | Mic Sends: {isRecording ? 'ON' : 'OFF'}</div> */}
+      <div className="text-xs text-gray-500 mt-1">
+        State: {connectionState} | Mic Sends: {isRecording ? "ON" : "OFF"}
+      </div>
     </div>
   );
 };

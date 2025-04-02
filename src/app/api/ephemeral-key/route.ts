@@ -1,13 +1,23 @@
 // src/app/api/ephemeral-key/route.ts
 import { getAISystemPrompt } from "@/lib/ai-prompt";
+import { isValidLanguage } from "@/lib/types";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
   // Todo: authenticate the request
   // Check the language
-  if (!request.headers.get("Language")) {
+  const language = request.headers.get("Language");
+  if (!language) {
     return NextResponse.json(
-      { error: "Missing language header: en-US es-ES" },
+      { error: "Missing language header" },
+      { status: 400 }
+    );
+  }
+
+  // Validate the language
+  if (!isValidLanguage(language)) {
+    return NextResponse.json(
+      { error: "Invalid language. Supported languages are: en, es, zh" },
       { status: 400 }
     );
   }
@@ -24,7 +34,6 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const english = request.headers.get("Language") === "en-US";
     const response = await fetch(
       "https://api.openai.com/v1/realtime/sessions",
       {
@@ -37,10 +46,13 @@ export async function POST(request: NextRequest) {
           // Can make this configurable or use an environment variable
           model: "gpt-4o-mini-realtime-preview-2024-12-17",
           modalities: ["audio", "text"],
-          instructions: getAISystemPrompt(english ? "english" : "spanish"),
+          instructions: getAISystemPrompt(language),
           voice: "sage",
           input_audio_transcription: {
-            model: "whisper-1",
+            model: "gpt-4o-mini-transcribe",
+            language: language,
+            prompt:
+              "Transcribe the audio to text. Expect words related to medical conversations.",
           },
         }),
       }

@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
   Mic,
-  Volume2,
   RefreshCw,
   AlertCircle,
   Check,
@@ -20,10 +19,7 @@ import { WebRTCConnector } from "@/components/chat/WebRTCConnector"; // Import t
 import { AI_ROLE_SHORT } from "@/lib/ai-prompt"; // Import prompts
 import { API_ROUTES } from "@/lib/apiRoutes";
 import { toast } from "sonner";
-
-// Types for our conversation
-type MessageRole = "clinician" | "patient" | "assistant" | "tool"; // Added assistant/tool
-type MessageType = "original" | "translation" | "info"; // Added info
+import { Language, MessageRole, MessageType } from "@/lib/types";
 
 interface Message {
   id: string;
@@ -48,8 +44,22 @@ export default function ConversationPage() {
   const router = useRouter();
 
   // Role determination
+  // Role and language determination
   const role = (searchParams.get("role") as MessageRole) || "clinician";
+  const lang = searchParams.get("lang") || (role === "clinician" ? "en" : "es");
   const isClinicianView = role === "clinician";
+
+  // Helper function for language-specific text
+  const getLocalizedText = (en: string, es: string, zh: string) => {
+    switch (lang) {
+      case "es":
+        return es;
+      case "zh":
+        return zh;
+      default:
+        return en;
+    }
+  };
 
   // State
   const [messages, setMessages] = useState<Message[]>([]);
@@ -69,16 +79,20 @@ export default function ConversationPage() {
   }, [messages]);
 
   // Add initial system message
-  useEffect(() => {
-    addMessage(
-      `System initialized. Role: ${
-        isClinicianView ? "Clinician (EN)" : "Patient (ES)"
-      }. Waiting to connect...`,
-      "info",
-      "assistant" // Or a dedicated 'system' role
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isClinicianView]); // Run only once on view change
+  useEffect(
+    () => {
+      addMessage(
+        getLocalizedText(
+          `System initialized. Role: Clinician (EN)`,
+          `Sistema inicializado. Rol: Paciente (ES)`,
+          `系统已初始化。角色：患者 (中文)`
+        ),
+        "info",
+        "assistant"
+      );
+    }, // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isClinicianView]
+  );
 
   // --- Message Handling ---
   const addMessage = useCallback(
@@ -109,7 +123,7 @@ export default function ConversationPage() {
 
   // --- WebRTC Callbacks ---
   const handleMessageReceived = useCallback(
-    (text: string, msgRole: "assistant" | "tool") => {
+    (text: string, msgRole: MessageRole) => {
       // TODO: Logic to determine if this is an original or translation
       // For now, assume it's the primary text from the assistant/tool
       addMessage(text, "original", msgRole);
@@ -179,7 +193,9 @@ export default function ConversationPage() {
       }
 
       if (infoMsg) {
-        addMessage(infoMsg, "info", "assistant"); // Use 'assistant' or 'system' role for info
+        // addMessage(infoMsg, "info", "assistant"); // Use 'assistant' or 'system' role for info
+        // this is for debugging, not for user
+        console.log(infoMsg);
       }
     },
     [addMessage]
@@ -227,18 +243,48 @@ export default function ConversationPage() {
     }
   };
 
-  // Simulate TTS using browser API
-  const playTextToSpeech = (text: string) => {
-    if ("speechSynthesis" in window) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      // Optional: Set language based on whose text it is
-      // utterance.lang = isClinicianView ? 'es-ES' : 'en-US'; // Example
-      speechSynthesis.cancel(); // Cancel previous speech
-      speechSynthesis.speak(utterance);
-    } else {
-      toast("TTS Not Supported", {
-        description: "Your browser does not support text-to-speech.",
+  const playTextToSpeech = async (text: string) => {
+    try {
+      // First attempt: Use OpenAI TTS
+      toast(getLocalizedText("Repeat", "Repetir", "重复一下"));
+      const response = await fetch(API_ROUTES.TTS, {
+        method: "POST",
+        body: JSON.stringify({
+          text: text,
+        }),
       });
+
+      if (!response.ok) {
+        throw new Error(`TTS API error: ${response.statusText}`);
+      }
+
+      // Convert the response to an audio blob
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+
+      // Clean up the URL after playing
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+      };
+
+      // Play the audio
+      await audio.play();
+    } catch (error) {
+      console.warn("OpenAI TTS failed, falling back to browser TTS:", error);
+
+      // Fallback: Use browser's SpeechSynthesis
+      if ("speechSynthesis" in window) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        // Optional: Set language based on whose text it is
+        // utterance.lang = isClinicianView ? 'es-ES' : 'en-US';
+        speechSynthesis.cancel(); // Cancel previous speech
+        speechSynthesis.speak(utterance);
+      } else {
+        toast("TTS Not Supported", {
+          description: "Text-to-speech is not available in your browser.",
+        });
+      }
     }
   };
 
@@ -316,32 +362,44 @@ export default function ConversationPage() {
     }
   };
 
-  const handleEndSession = () => {
+  const handleEndSession = async () => {
     // 1. Stop WebRTC connection if active
-    // webRTCConnectorRef.current?.stopConversation(); // Need to expose stopConversation via ref or have the button inside the connector
-    setIsRecording(false); // Ensure mic state is off
+    setIsRecording(false);
     if (
       rtcConnectionState === "connected" ||
       rtcConnectionState === "connecting"
     ) {
-      // Need a way to trigger stopConversation inside WebRTCConnector
-      // For now, rely on user clicking the Stop button in the connector
       console.warn(
         "Please stop the voice session using the dedicated button before ending."
       );
       toast("Please stop the voice session first", {});
-      return; // Prevent ending until connection stopped
+      return;
     }
 
-    // 2. TODO: Send final transcript + trigger summary generation (backend)
-    const transcript = messages;
-    fetch(API_ROUTES.SAVE_CONVERSATION, {
-      method: "POST",
-      body: JSON.stringify({ transcript }),
-    });
+    try {
+      // 2. Save transcript and get conversation ID
+      const response = await fetch(API_ROUTES.SAVE_CONVERSATION, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ transcript: messages }),
+      });
 
-    // 3. Navigate to summary page
-    router.push(`/summary?role=${role}`);
+      if (!response.ok) {
+        throw new Error(`Failed to save conversation: ${response.statusText}`);
+      }
+
+      const { id } = await response.json();
+
+      // 3. Navigate to summary page with conversation ID
+      router.push(`/summary?role=${role}&lang=${lang}&conversationId=${id}`);
+    } catch (error) {
+      console.error("Error ending session:", error);
+      toast("Error", {
+        description: "Failed to save conversation. Please try again.",
+      });
+    }
   };
 
   // --- Rendering ---
@@ -361,8 +419,13 @@ export default function ConversationPage() {
       >
         <div>
           <h1 className="text-xl font-bold">
-            {isClinicianView ? "Medical Interpreter" : "Intérprete Médico"}
+            {getLocalizedText(
+              "Medical Interpreter",
+              "Intérprete Médico",
+              "医疗翻译"
+            )}
           </h1>
+
           <div className="text-xs opacity-80 flex items-center gap-1">
             <Info size={12} /> {AI_ROLE_SHORT}
             <span
@@ -389,9 +452,8 @@ export default function ConversationPage() {
             isClinicianView ? "hover:text-blue-600" : "hover:text-green-600"
           )}
           onClick={handleEndSession}
-          // Disable if connection active? Maybe not, allow ending session regardless.
         >
-          {isClinicianView ? "End Session" : "Finalizar Sesión"}
+          {getLocalizedText("End Session", "Finalizar Sesión", "结束会话")}
         </Button>
       </header>
 
@@ -478,19 +540,23 @@ export default function ConversationPage() {
         onConnectionStateChange={handleConnectionStateChange}
         isRecording={isRecording} // Pass recording state down
         onStopRecording={handleStopRecordingFromConnector} // Pass callback down
-        role={role}
-        // ref={webRTCConnectorRef} // Enable if you need to call sendCommand from parent
+        language={lang as Language}
+        ref={webRTCConnectorRef} // Enable if you need to call sendCommand from parent
       />
 
       {/* Action alerts */}
       {actions.filter((a) => a.confirmed === null).length > 0 && (
         <div className="p-4 border-t border-slate-200 bg-white sticky bottom-[88px] md:bottom-[72px] z-10">
-          {" "}
           {/* Adjust bottom based on control bar height */}
           <div className="max-w-4xl mx-auto space-y-2">
             <h3 className="text-sm font-medium text-amber-700 mb-1">
-              Pending Actions:
+              {getLocalizedText(
+                "Pending Actions:",
+                "Acciones Pendientes:",
+                "待处理操作："
+              )}
             </h3>
+
             {actions
               .filter((a) => a.confirmed === null)
               .map((action) => (
@@ -518,14 +584,17 @@ export default function ConversationPage() {
                         className="border-red-300 text-red-700 hover:bg-red-100 h-8 px-2"
                         onClick={() => handleActionConfirm(action.id, false)}
                       >
-                        <X size={14} className="mr-1" /> No
+                        <X size={14} className="mr-1" />
+                        {getLocalizedText("No", "No", "否")}
                       </Button>
+
                       <Button
                         size="sm"
                         className="bg-green-600 hover:bg-green-700 h-8 px-2"
                         onClick={() => handleActionConfirm(action.id, true)}
                       >
-                        <Check size={14} className="mr-1" /> Yes
+                        <Check size={14} className="mr-1" />
+                        {getLocalizedText("Yes", "Sí", "是")}
                       </Button>
                     </div>
                   </div>
@@ -555,7 +624,11 @@ export default function ConversationPage() {
               <RefreshCw size={18} />
             </Button>
             <span className="text-sm hidden md:inline">
-              {isClinicianView ? "Repeat Last" : "Repetir Último"}
+              {getLocalizedText(
+                "Repeat Last",
+                "Repetir Último",
+                "请你重复一下"
+              )}
             </span>
           </div>
 
@@ -598,22 +671,6 @@ export default function ConversationPage() {
               <Mic size={24} />
             )}
           </button>
-
-          {/* Play Audio Button (If separate TTS control needed) */}
-          <div className="flex items-center gap-2 md:order-3">
-            <Button
-              variant="outline"
-              size="icon"
-              className="rounded-full h-10 w-10 bg-white disabled:opacity-50"
-              // onClick={handlePlayLastAudio} // Implement if needed
-              disabled // Disable for now, as AI audio plays automatically via WebRTC track
-            >
-              <Volume2 size={18} />
-            </Button>
-            <span className="text-sm hidden md:inline">
-              {isClinicianView ? "Play Audio" : "Reproducir"}
-            </span>
-          </div>
         </div>
       </div>
     </div>

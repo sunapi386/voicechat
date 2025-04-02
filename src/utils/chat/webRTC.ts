@@ -1,8 +1,7 @@
 // src/utils/chat/webRTC.ts
-import { AI_SYSTEM_PROMPT } from "@/lib/ai-prompt"; // Import the prompt
 
 // Define types for message handling callbacks
-type HandleTextMessage = (text: string, role: "assistant" | "tool") => void;
+type HandleTextMessage = (text: string, role: "assistant" | "user") => void;
 type HandleError = (error: Error) => void;
 type HandleConnectionStateChange = (state: RTCPeerConnectionState) => void;
 
@@ -53,54 +52,6 @@ export const setupWebRTCConnection = async ({
       }
     };
 
-    // --- Data Channel Handler (Receiving AI Text/Metadata - Assumption!) ---
-    // NOTE: This assumes OpenAI Realtime API uses a data channel named 'text' or similar.
-    // You *must* verify this with OpenAI's documentation for the specific API version.
-    pc.ondatachannel = (event) => {
-      console.log("Data channel received:", event.channel.label);
-      dc = event.channel;
-      dc.onmessage = (event) => {
-        try {
-          const messageData = JSON.parse(event.data);
-          console.log("Data channel message:", messageData);
-
-          // --- Interpreting the message ---
-          // This structure is HYPOTHETICAL. Adapt based on actual API output.
-          if (messageData.type === "transcript" && messageData.text) {
-            // May receive partial or full transcripts
-            // Decide how to handle (e.g., update temporary display, add full message)
-          } else if (messageData.type === "translation" && messageData.text) {
-            onTextMessage(messageData.text, "assistant");
-          } else if (
-            messageData.type === "action_request" &&
-            messageData.action
-          ) {
-            // Handle detected action needing confirmation
-            // onActionDetected(messageData.action); // Need a callback for this
-          } else if (messageData.type === "tool_call" && messageData.tool) {
-            // Handle tool call confirmation/info
-            onTextMessage(
-              `Tool call: ${messageData.tool.name} executed.`,
-              "tool"
-            );
-          } else if (messageData.type === "summary" && messageData.text) {
-            // Handle end-of-conversation summary
-            // onSummaryReceived(messageData.text); // Need a callback
-          }
-          // Add more cases as needed based on API behavior
-        } catch (e) {
-          console.error("Failed to parse data channel message:", event.data, e);
-          onError(new Error("Received malformed data from AI."));
-        }
-      };
-      dc.onopen = () => console.log("Data channel opened!");
-      dc.onclose = () => console.log("Data channel closed.");
-      dc.onerror = (err) => {
-        console.error("Data channel error:", err);
-        onError(new Error("Data channel communication error."));
-      };
-    };
-
     // --- ICE Candidate Handling ---
     pc.onicecandidate = async (event) => {
       if (event.candidate) {
@@ -131,6 +82,7 @@ export const setupWebRTCConnection = async ({
     pc.addTransceiver("audio", { direction: "recvonly" });
     // Add a transceiver for the data channel if needed (check OpenAI docs)
     // pc.addTransceiver('data', { direction: 'recvonly' }); // Hypothetical
+    // Error: Failed to execute 'addTransceiver' on 'RTCPeerConnection': The argument provided as parameter 1 is not a valid MediaStreamTrack kind ('audio' or 'video').
 
     // --- Create Data Channel (Sending Commands like 'repeat' - Assumption!) ---
     // This assumes *we* initiate the data channel. OpenAI might initiate it.
@@ -142,6 +94,52 @@ export const setupWebRTCConnection = async ({
       console.error("Client data channel error:", err);
       onError(new Error("Client data channel failed."));
     };
+    dc.addEventListener("message", (e) => {
+      try {
+        const message = JSON.parse(e.data);
+
+        switch (message.type) {
+          // Handle AI responses
+          // case "response.audio_transcript.delta":
+          //   onTextMessage(message.delta, "assistant");
+          //   break;
+
+          case "response.audio_transcript.done":
+            onTextMessage(message.transcript, "assistant");
+            break;
+
+          // // Handle human input transcription
+          // case "conversation.item.input_audio_transcription.delta":
+          //   onTextMessage(message.delta, "user");
+          //   break;
+
+          case "conversation.item.input_audio_transcription.completed":
+            onTextMessage(message.transcript, "user");
+            break;
+
+          // Handle errors
+          case "conversation.item.input_audio_transcription.failed":
+            onError(
+              new Error(
+                `Transcription failed: ${
+                  message.error?.message || "Unknown error"
+                }`
+              )
+            );
+            break;
+
+          default:
+            // Optionally log unhandled message types
+            console.debug("Unhandled data channel message type:", message.type);
+        }
+      } catch (err) {
+        console.error("Failed to parse data channel message:", err);
+        onError(
+          err instanceof Error ? err : new Error("Failed to parse message")
+        );
+      }
+    });
+
     console.log("Client data channel created.");
 
     const offerOptions: RTCOfferOptions = {
@@ -238,7 +236,7 @@ export const setupWebRTCConnection = async ({
 
     console.log("WebRTC connection established successfully.");
     return { peerConnection: pc, audioElement: audio, dataChannel: dc };
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error setting up WebRTC connection:", error);
     // Cleanup partially created resources
     if (pc) pc.close();
