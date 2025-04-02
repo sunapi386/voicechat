@@ -1,0 +1,9 @@
+{
+    "build": {
+        "env": {
+          "ENABLE_PNPM": "true"
+        }
+    },    
+    "buildCommand": "pnpm build",
+    "installCommand": "pnpm install"
+}
